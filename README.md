@@ -9,6 +9,10 @@
 适用于 Claude Code、WorkBuddy、Cursor 等支持 Skill / 自定义指令的 AI 编程助手，
 也可以完全脱离 AI 当纯方法论与脚本工具使用。
 
+**当前版本 v2.0.0** —— 在 v1 的"条目化 → 映射 → 撰写 → 校验 → 交付"闭环上，
+补齐了**模式路由、投标决策辅助、评分作战表、双轨核查、复用污染扫描、机器可读报告**六块能力，
+并修掉 7 个会让"看起来通过、其实没做"的脚本缺陷（详见 [v2 修了什么](#v2-修了什么)）。
+
 > **中文别名 / 搜索关键词**：投标文档技能、标书写作、售前方案、售前支持、技术标、商务标、
 > 招投标、投标文件、点对点应答表、技术偏离表、废标项核查、招标文件解析、spec docs 逐条应答。
 > 仓库英文名为 `ai-bid-document`（GitHub 不支持中文仓库名与中文 topics），中文检索请依赖本行。
@@ -20,7 +24,9 @@
 - [解决什么问题](#解决什么问题)
 - [核心设计：五条铁律](#核心设计五条铁律)
 - [功能特性](#功能特性)
+- [四种工作模式](#四种工作模式)
 - [工作流总览](#工作流总览)
+- [v2 修了什么](#v2-修了什么)
 - [安装](#安装)
 - [快速开始](#快速开始)
 - [目录结构](#目录结构)
@@ -126,13 +132,37 @@ AI 写方案时最危险的不是文笔差，而是**把不存在的参数写得
 
 ```bash
 # 有阻断项 → 退出码 1；全部通过 → 退出码 0，可直接接入 CI
-python scripts/validate_bid.py --bid ./bid --req requirements.csv --map outline-map.csv
+python scripts/validate_bid.py --bid ./bid --req requirements.csv --map outline-map.csv \
+  --score scoring-matrix.csv --project "本项目名称" --project-no "项目编号" \
+  --report validate.json
 ```
 
-检查 7 项：占位符残留、必答覆盖率、灰色响应表述、章节映射缺失、
-一级章节跳号、绝对化表述、注水套话。
+检查 12 项：占位符残留、必答覆盖（区分"声明"与"实质"）、灰色响应表述、章节映射缺失、
+章节编号连续性、绝对化表述、注水套话、评分点无证据、复用污染（旧项目名/编号/内部用语）、
+docx 不可读、输入异常、篇幅统计。
 
-### 五、方法论文档
+**其中三项是 v2 才有的**，也是真实项目里最容易"假通过"的地方：
+
+| 检查 | v1 的表现 | v2 的表现 |
+|---|---|---|
+| 覆盖率 | 章节头写了编号就算覆盖（可被声明行绕过） | 区分声明级/实质级，只有声明直接 `COV-02` 阻断 |
+| 引用识别 | `\b` 正则在中文语境失配，覆盖率可能恒为 0 | 改用 lookaround，`条目R-001` 也能识别 |
+| docx 缺依赖 | 静默返回 `[跳过]` 并当作正文扫描 | 明确报错，退出码 2 |
+
+### 五、评分作战表（v2 新增）
+
+`scoring-matrix.csv` 把评分办法拆成"得分点 → 分值 → 证据 → 章节 → 把握度"，
+一张表回答三个问题：**哪些分确定拿不到、哪些分还没安排落点、满分离我们多远**。
+
+```bash
+python scripts/validate_bid.py --bid ./bid --req requirements.csv --score scoring-matrix.csv
+```
+
+- 评分点无承载章节 → `SCORE-01` BLOCKER（白丢分）
+- 证据列为空 → `SCORE-02` BLOCKER（有分无证据）
+- 可达分/理论满分 < 70% → `SCORE-06` 竞争力提示
+
+### 六、方法论文档
 
 不是泛泛的"写作建议"，是可直接执行的判定规则：
 
@@ -145,7 +175,7 @@ python scripts/validate_bid.py --bid ./bid --req requirements.csv --map outline-
 | [`compliance-checklist.md`](references/compliance-checklist.md) | 7 部分 60+ 项交付前核对清单，标注高频废标点 |
 | [`tech-domains.md`](references/tech-domains.md) | 9 大子系统（网络/机房/服务器存储/安防/音视频/布线/软件/安全/运维）要点与评委常问 |
 
-### 六、模板与示例
+### 七、模板与示例
 
 - `requirements.csv` / `outline-map.csv`：可直接改用的台账模板
 - `response-matrix.md`：点对点应答表（含三值响应规范）
@@ -155,30 +185,88 @@ python scripts/validate_bid.py --bid ./bid --req requirements.csv --map outline-
 
 ---
 
+## 四种工作模式
+
+v1 的问题是"不管问什么都跑六阶段"，一句话的请求也要走全流程，重且慢。v2 先路由再执行：
+
+| 模式 | 你的一句话 | 走哪些阶段 | 拿到什么 |
+|---|---|---|---|
+| **M1 读标** | "这标书讲了什么、红线在哪" | S0 → S1 → 解读 | 台账 + 废标红线清单 + 评分点表 |
+| **M2 编标** | "帮我写技术标" | S0 → S5 | 八件套 |
+| **M3 体检** | "这份标会不会废标" | S0 轻量 → S4 | 核查报告 + 整改清单 |
+| **M4 定点** | "这句能不能写" | 单点判断 | 结论 + 原文依据 |
+
+路由口诀：**有现成稿 → M3；只有招标文件 → M1；要成稿 → M2；问一句 → M4。**
+模式可以升级，但不默认升级——用户说"那就接着写吧"再进 M2。
+
+---
+
 ## 工作流总览
 
 ```
-S0 建档          确认输入清单（招标文件/评分办法/须知/资格/产品资料/承诺授权）
-  │               缺项先出「材料缺口清单」，不猜、不阻塞
+S0 建档          确认输入清单（I1–I8）+ 资格符合性自检（只列缺口，不下"能不能投"的结论）
+  │               🚧 G0：无招标文件 / 纯扫描件未 OCR → 停止
   ▼
-S1 解析          招标文件 → requirements.csv（R-001 起，逐条编号）
-  │               产出基准数字：总条目 N / 必答 M
+S1 解析          招标文件 → requirements.csv（R-001 起，15 列，带行号与版本）
+  │               去重合并重复条款；产出三个基准数字：原始 / 主条目 / 必答
+  │               🚧 G1：条目数明显低于经验值（每 10 页 15–30 条）→ 补抽
   ▼
-S1.5 人工修订     修正 mandatory 判定、补 owner、整理澄清函
-  │               ⚠️ 这一步不能省，脚本只做初判
+S1.5 人工修订     修正 mandatory 与 strength、补 owner、整理澄清函
+  │               ⚠️ 这一步不能省，脚本只做初判（陈述句形式的强制条款抓不到）
   ▼
-S2 映射          每条要求 → 具体章节（outline-map.csv）
-  │               🚧 硬门禁：必答未映射 → 禁止撰写
+S2 映射          requirements → outline-map.csv；评分办法 → scoring-matrix.csv
+  │               🚧 G2 硬门禁：必答未映射 / 评分点无章节 → 禁止撰写
   ▼
 S3 撰写          逐章推进，每章首部写覆盖声明，首段直接回应原文
-  │               不确定处标 [待确认]，不编造
+  │               不确定处标 [待确认]，不编造；同步做复用污染自检
   ▼
-S4 校验          validate_bid.py 跑 7 项检查
-  │               BLOCKER 必须清零；WARN 人工判断
+S4 双轨核查      轨一：validate_bid.py 跑 12 项确定性检查（exit 1 = 有阻断）
+  │               轨二：compliance-checklist.md 做 A–G 七维语义复核
+  │               🚧 G3：BLOCKER 必须清零
   ▼
-S5 交付          7 件套：正文/台账/映射/应答表/待确认清单/交付清单/校验报告
+S5 交付          八件套：正文/台账/映射/评分表/应答表/待确认清单/交付清单/校验报告
                   汇报写清「已完成什么、未完成什么、哪些待确认」
 ```
+
+> 与 v1 的差别：每个阶段多了**门禁与失败动作**，而不是"做完就往下走"。
+> 门禁不过时的正确处理是停下来说明缺什么，不是继续写。
+
+---
+
+## v2 修了什么
+
+### 一、定位与流程
+
+| 问题（v1） | 后果 | v2 的处理 |
+|---|---|---|
+| 不管什么请求都跑 S0–S5 | 一句话的请求也要 6 个阶段，用户等不起 | 四模式路由，M1/M3/M4 显著裁剪 |
+| 明确"不判断该不该投"，但也不给任何决策材料 | 不合格的项目被一路推进到撰写，白干 | 增加资格符合性自检表（只列缺口，结论留给人） |
+| 无信息冲突优先级 | 正文与补遗冲突时随便择一 | 定义五级优先级：补遗 > 正文 > 附件格式 > 口述 > 历史模板 |
+| 无版本台账 | 按旧版写作，补遗内容漏响应 | `source_ver` 列 + `clarification-log.csv` |
+| 硬门禁只写在 README 流程图里 | 模型可能跳过人工修订直接映射 | 门禁 G0–G3 写进 SKILL.md，并配"停下来说明什么"的话术 |
+| 无停止规则 | 遇到缺料/超授权承诺继续往下写 | 六条硬停止规则 H1–H6 |
+
+### 二、脚本（可复现的缺陷）
+
+| # | 缺陷 | 影响 | 修复 |
+|---|---|---|---|
+| 1 | 覆盖率正则用 `\bR-\d{3,}\b` | 中文语境下 `\b` 失配（中文算 `\w`），"条目R-001"匹配不到，覆盖率可能恒为 0 | 改 lookaround，加回归测试 T01 |
+| 2 | 覆盖声明行本身也算"引用" | 章节头写 `> 覆盖条目：R-012` 即判通过，正文一字不写也不报错 | 双层覆盖：声明级 vs 实质级，新增 `COV-02` |
+| 3 | docx 缺依赖时返回 `[跳过]` 字符串 | 该字符串被当正文参与扫描，结果看起来正常但完全失真 | 抛 `InputError`，退出码 2 |
+| 4 | 章节编号只认 Markdown `#` | 真实 .docx 转文本没有 `#`，编号检查恒为空（假通过） | 支持 `第X章` / `# N.` / `N、` 三种体例 |
+| 5 | 类型判定"章节优先" | "投标人须知"整章被判资格、"技术要求"整章被判技术 | 句内优先、章节兜底；评标/合同章节作强信号 |
+| 6 | 无去重 | 同一要求写三遍就被算成 3 条必答，覆盖率永远算不准 | 完全重复/子集/相似度 ≥0.90 三类合并，写 `dup_of` |
+| 7 | `source_quote` 与 `requirement` 同源 | 号称"原文溯源"其实没有独立位置 | 新增 `line_no` + `source_ver`，抽查 30 秒可定位 |
+| 8 | 输入错误 `sys.exit("字符串")` | 实际退出码 1，与文档写的 2 不符，CI 判错 | 统一 `return 2`，加测试 T09 |
+
+### 三、新增能力
+
+- **评分作战表**：`scoring-matrix.csv` + `SCORE-01..06`，把"能拿多少分"从口号变成表
+- **复用污染扫描**：`POLL-01..03`，查旧项目名/编号/内部用语——比凭空编造更危险的编造变体
+- **机器可读报告**：`--report validate.json`，每条发现带 `id/rule/location/evidence/suggestion`
+- **交付契约**：固定目录、命名、JSON schema、Issue ID 规则（`references/delivery-contract.md`）
+- **异常边界表**：14 种真实情况（扫描件、加密、超长、联合体、电子标、涉密…）的处理口径
+- **回归测试**：`tests/test_scripts.py` 23 项，零依赖，每个用例对应一个真实 bug
 
 ---
 
@@ -261,10 +349,19 @@ python scripts/validate_bid.py --bid ./bid --list-todo
 **第 5 步：交付前校验**
 
 ```bash
-python scripts/validate_bid.py --bid ./bid --req requirements.csv --map outline-map.csv
+python scripts/validate_bid.py --bid ./bid --req requirements.csv \
+  --map outline-map.csv --score scoring-matrix.csv \
+  --project "本项目名称" --project-no "KM-2026-1234" \
+  --report validate.json
 ```
 
-`exit 0` 才可交付。看到 `exit 1` 就按报告逐项清零。
+`exit 0` 才可交付。看到 `exit 1` 就按报告逐项清零；输入有问题时返回 `exit 2`。
+
+**第 6 步（可选）：跑一遍回归测试，确认脚本在你机器上的行为一致**
+
+```bash
+python -m unittest discover -s tests -v      # 23 项，无需安装任何依赖
+```
 
 > 完整演示见 [`examples/walkthrough.md`](examples/walkthrough.md)。
 
@@ -274,32 +371,44 @@ python scripts/validate_bid.py --bid ./bid --req requirements.csv --map outline-
 
 ```
 ai-bid-document/
-├── SKILL.md                      # 核心指令：五条铁律、S0-S5 工作流、失效模式
+├── SKILL.md                      # 核心指令：五铁律、四模式、六阶段门禁、停止规则
 ├── README.md                     # 本文件
 ├── LICENSE                       # MIT
 ├── CHANGELOG.md                  # 版本记录
+├── VERSION                       # 版本号（发布工作流读取）
 │
 ├── references/                   # 方法论文档（判定规则，非泛泛建议）
-│   ├── requirement-parsing.md    # 要求抽取口径与强制词判定
-│   ├── anti-hallucination.md     # 六类禁编内容与收敛流程
+│   ├── 00-routing-and-boundaries.md  # 模式路由、停止规则、冲突优先级、异常全表
+│   ├── requirement-parsing.md    # 抽取粒度、强制强度五级、去重、溯源字段
+│   ├── anti-hallucination.md     # 六类禁编内容、复用污染、待确认收敛
 │   ├── writing-style.md          # 语体、量化表达、承诺分级
-│   ├── scoring-matrix.md         # 评分拆解与得分策略
-│   ├── compliance-checklist.md   # 交付前 60+ 项核对清单
-│   └── tech-domains.md           # 9 大子系统技术要点
+│   ├── scoring-matrix.md         # 评分拆解、作战表字段、评分陷阱
+│   ├── compliance-checklist.md   # A–G 七维 60+ 项复核 + 合格发现判定示例
+│   ├── tech-domains.md           # 9 大子系统技术要点
+│   └── delivery-contract.md      # 目录/命名/validate.json 契约/Issue ID
 │
-├── templates/                    # 可直接改用的模板
-│   ├── requirements.csv          # 要求台账
+├── templates/                    # 可直接改用的模板（7 份）
+│   ├── requirements.csv          # 要求台账（15 列）
 │   ├── outline-map.csv           # 章节映射
+│   ├── scoring-matrix.csv        # 评分作战表
+│   ├── qualification-check.csv   # 资格符合性自检
+│   ├── clarification-log.csv     # 澄清/补遗台账
 │   ├── response-matrix.md        # 点对点应答表
 │   ├── deviation-table.md        # 技术/商务偏离表
 │   └── delivery-checklist.md     # 交付清单
 │
 ├── examples/
-│   └── walkthrough.md            # 全流程演示（含真实命令输出）
+│   └── walkthrough.md            # 全流程演示 + v2 三类新检查的实测输出
+│
+├── tests/
+│   └── test_scripts.py           # 23 项回归测试，零依赖
+│
+├── docs/                         # 发布页（GitHub Pages）
+│   └── index.html
 │
 └── scripts/
-    ├── extract_requirements.py   # 要求抽取
-    ├── validate_bid.py           # 交付前校验
+    ├── extract_requirements.py   # 要求抽取（去重 + 溯源 + 强度分级）
+    ├── validate_bid.py           # 双轨核查的确定性轨（12 项检查 / JSON 输出）
     └── README.md                 # 脚本详细用法
 ```
 
@@ -323,7 +432,11 @@ ai-bid-document/
 | `source_quote` | 原文摘录 | 复核时逐字对照，防止改写走样 |
 | `response_type` | 响应/偏离/证明/承诺 | 决定这一条在标书里以什么形式出现 |
 | `need_clarify` | `Y` = 需发澄清函 | 把模糊要求变确定要求的唯一机会 |
-| `owner` / `status` | 责任人 / 状态 | 多人协作时不至于互相等 |
+| `strength` | 禁止/必须/应/宜/可 | 强制强度五级，决定整改优先级（v2 新增） |
+| `source_ver` | `v1`/`补遗-01` | 出自哪一版文件，防止按旧版写作（v2 新增） |
+| `line_no` | 整数 | 原文行号，30 秒定位原文（v2 新增） |
+| `dup_of` | `R-00X` 或空 | 与哪条重复；只有空值计入必答数（v2 新增） |
+| `owner` / `status` | 人名 / 待响应… | 多人协作时不至于互相等 |
 
 ### 2. `outline-map.csv` — 章节映射
 
