@@ -2,6 +2,18 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+只动了打包与文档，技能行为、脚本输出、`validate.json` schema 均未变，不单独发版。
+
+- 新增 `tools/pack_skillhub.py`：把仓库打成技能市场可上传的纯文本包。
+  白名单取文件（`SKILL.md` + `README.md` + `references/` `templates/` `scripts/` `examples/` `tests/`），
+  `SKILL.md` 直放 zip 根目录，自动剔除 `.nojekyll` `LICENSE` `VERSION` `.github/` `docs/`；
+  自检覆盖根目录入口、隐藏文件、无扩展名文件、二进制魔数、反斜杠路径、层级 ≤2、
+  单文件 2MB / 整包 10MB / 300 文件上限，以及 `SKILL.md` 引用路径是否真实存在。
+  `--check` 可体检任意 zip 并指出具体违规条目。
+- README 新增「发布到 SkillHub」：说明仓库包与上传包的差异、三个无扩展名文件各自的作用。
+
 ## [2.0.1] - 2026-10-18
 
 补丁版。修掉 v2.0.0 自身遗留的**"规范写了、代码没做"**问题，以及几处对外数字失准。

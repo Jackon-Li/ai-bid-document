@@ -44,6 +44,7 @@
 - [设计思路](#设计思路)
 - [常见问题](#常见问题)
 - [局限与免责](#局限与免责)
+- [发布到 SkillHub](#发布到-skillhub)
 - [贡献](#贡献)
 - [许可](#许可)
 
@@ -440,6 +441,10 @@ ai-bid-document/
 ├── docs/                         # 发布页（GitHub Pages）
 │   └── index.html
 │
+├── tools/
+│   ├── activate_pages.py         # 首次启用 Pages 并配 Source（幂等）
+│   └── pack_skillhub.py          # 打技能市场上传包（白名单 + 硬性自检）
+│
 └── scripts/
     ├── extract_requirements.py   # 要求抽取（去重 + 溯源 + 强度分级）
     ├── validate_bid.py           # 双轨核查的确定性轨（21 条规则 / JSON 输出）
@@ -625,6 +630,37 @@ A：两条路：① 优先收敛 `mandatory=Y` 条目里的标记（这些影响
 **明确拒绝的用途**：伪造资质证书、编造业绩案例、代签代盖章、规避招标程序。
 
 ---
+
+## 发布到 SkillHub
+
+**仓库包 ≠ 上传包。** 仓库要 `.nojekyll`、`LICENSE`、`VERSION`、`.github/` 才能正常工作；
+技能市场只接受"模型运行时会读到的纯文本"，把仓库原样 zip 上传，通常会被"包含禁止上传的文件"挡回来。
+
+被挡的几乎总是下面这几类（都不是技能内容，删掉不影响运行）：
+
+| 文件 | 真实用途 | 为什么上传会报错 |
+|---|---|---|
+| `docs/.nojekyll` | 告诉 GitHub Pages 别用 Jekyll 处理 `docs/`，否则下划线开头的文件会被吞掉 | 无扩展名的**隐藏文件**，平台按非法文件拒收 |
+| `LICENSE` | MIT 许可全文，GitHub 侧边栏据此显示 "MIT license" | 无扩展名；许可信息已在 README 与仓库 About 里 |
+| `VERSION` | 发版流程的版本源，`release.yml` 读它自动建 Release | 无扩展名；运行时不需要 |
+| `.gitattributes` / `.gitignore` / `.github/` | 换行符归一、忽略规则、CI 工作流 | 版本控制与 CI 元数据，与技能无关 |
+| `docs/index.html` | 在线发布页（动画、配色、下载按钮） | 非纯文本白名单，且不是技能内容 |
+
+一条命令打出干净的上传包（白名单取文件 + 逐项自检，任一硬性规则不过就不出包）：
+
+```bash
+python tools/pack_skillhub.py                          # 输出 dist/ai-bid-document-skillhub.zip
+python tools/pack_skillhub.py --out ~/Desktop/x.zip    # 指定输出位置
+python tools/pack_skillhub.py --check some.zip         # 只体检已有 zip，看它到底错在哪
+python tools/pack_skillhub.py --wrap                   # 平台要求「根目录/技能名/文件」时加一层
+```
+
+它保证：`SKILL.md` 在 zip 根目录（不套外层文件夹）、只有 `.md/.py/.csv/.txt/.json/.yaml`、
+无隐藏文件、路径全为正斜杠、层级 ≤ 2、单文件 ≤ 2MB、整包 ≤ 10MB、文件数 ≤ 300，
+并检查 `SKILL.md` 里引用的 `references/…`、`templates/…` 是否真实存在于包内。
+
+> 若平台报"文件路径不安全"，多半是在 Windows 上用资源管理器右键压缩导致的：
+> 资源管理器会写反斜杠路径。请用本脚本，或用 7-Zip 的「标准 zip」模式。
 
 ## 贡献
 
