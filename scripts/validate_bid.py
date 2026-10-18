@@ -12,7 +12,6 @@ validate_bid.py — 投标稿交付前校验（v2.0，双轨核查中的确定�
     python validate_bid.py --bid ./bid --list-todo        # 只列待确认项
 
 检查项（规则编号见 references/delivery-contract.md）：
-    IO-01/02  输入异常（路径不存在 / 无可读文件 / docx 依赖缺失）
     TODO-01   占位符残留
     COV-01    必答条目完全未出现
     COV-02    仅出现在覆盖声明行，正文无实质展开（v1 的漏洞：声明即算覆盖）
@@ -22,9 +21,13 @@ validate_bid.py — 投标稿交付前校验（v2.0，双轨核查中的确定�
     RISK-01   绝对化/宣传性表述
     RISK-02   注水套话
     MAP-01/02 映射表缺失必答条目 / chapter 列为空
-    SCORE-01..06 评分点无章节、无证据、分值异常、把握度非法、可达分偏低
+    SCORE-01..06 评分点无章节、无证据、分值异常、把握度非法、拆分过粗、可达分偏低
     POLL-01..03  复用污染：旧项目编号、旧项目名称、内部用语
-    FMT-01    篇幅统计（INFO）
+    FMT-01    篇幅统计（INFO；单篇过薄时提示）
+
+    输入异常（路径不存在 / 无可读文件 / docx 依赖缺失）不产出 Finding，
+    而是抛 InputError 并返回退出码 2 —— 因为此时"检查结论"本身无意义，
+    继续输出 INFO/WARN 会造成"跑过了"的错觉。
 
 退出码：0 = 通过；1 = 存在阻断项（或 --strict 下有 WARN）；2 = 输入错误
 """
@@ -37,7 +40,7 @@ import re
 import sys
 from pathlib import Path
 
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 TEXT_SUFFIXES = {".md", ".txt", ".markdown"}
 SUPPORTED = TEXT_SUFFIXES | {".docx"}
 SKIP_DIRS = {".git", "__pycache__", "node_modules", ".idea", ".vscode", ".venv"}
@@ -385,6 +388,8 @@ def check_score(score_path: Path):
         return [Finding("BLOCKER", "SCORE-00", f"无法读取评分作战表：{e}")], {}
 
     theory, reachable, no_evidence = 0.0, 0.0, 0
+    points = len(rows)
+    no_rule = 0
     coef = {"高": 0.9, "中": 0.6, "低": 0.3, "无": 0.0}
     for r in rows:
         sid = (r.get("score_id") or "?").strip()
@@ -400,6 +405,7 @@ def check_score(score_path: Path):
         chap = (r.get("chapter") or "").strip()
         ev = (r.get("evidence") or "").strip()
         cap = (r.get("capability") or "").strip()
+        rule = (r.get("score_rule") or "").strip()
 
         if not chap:
             findings.append(Finding("BLOCKER", "SCORE-01", f"{sid}（{item}）无承载章节",
@@ -413,9 +419,20 @@ def check_score(score_path: Path):
                                     suggestion="确认是否接受丢分；否则补证据或改为正偏离争取部分分"))
         if cap and cap not in coef:
             findings.append(Finding("WARN", "SCORE-04", f"{sid} capability=「{cap}」不在 高/中/低/无 内"))
+        if not rule:
+            no_rule += 1
+            findings.append(Finding("WARN", "SCORE-05", f"{sid}（{item}）score_rule 为空，无法核对是否漏拆",
+                                    suggestion="补评分办法原文摘录；没有原文就无法判断这一条是否拆全"))
 
         theory += smax
         reachable += smax * coef.get(cap, 0.3)
+
+    # 拆分过粗：一条评分点平均吃下 8 分以上，通常意味着把多个得分点压成了一行。
+    # 用"平均分值"而不是单看条数——小项目评分项本来就少，单看条数会大面积误报。
+    if points and points < 15 and theory / points > 8:
+        findings.append(Finding("WARN", "SCORE-05",
+                                f"评分点仅 {points} 条却摊到 {theory:g} 分（平均 {theory/points:.1f} 分/条），拆分过粗",
+                                suggestion="按“评分办法原文一句话一条”重拆；一条吃 8 分以上通常说明有得分点被合并了"))
 
     if theory > 0:
         ratio = reachable / theory
@@ -424,9 +441,10 @@ def check_score(score_path: Path):
                                     f"可达分/理论满分 = {ratio:.0%}（<70%，竞争力不足）",
                                     suggestion="优先补 capability=低/无 且有证据可补的项"))
         stats = {"score_total": theory, "score_reachable": round(reachable, 1),
-                 "score_ratio": round(ratio, 3), "score_no_evidence": no_evidence}
+                 "score_ratio": round(ratio, 3), "score_no_evidence": no_evidence,
+                 "score_points": points, "score_no_rule": no_rule}
     else:
-        stats = {}
+        stats = {"score_points": points, "score_no_rule": no_rule} if points else {}
     return findings, stats
 
 
@@ -606,6 +624,19 @@ def main():
         stats.update(score_stats)
     if args.project or args.project_no:
         findings += check_pollution(files, args.project or "", args.project_no or "")
+
+    # FMT-01 篇幅统计：永远只报 INFO。用途不是卡字数，而是发现"整篇只有标题"的稿子
+    total_chars = sum(len(t) for t in files.values())
+    avg = total_chars // max(len(files), 1)
+    thin = sorted(((Path(n).name, len(t)) for n, t in files.items() if len(t) < 500),
+                  key=lambda x: x[1])
+    msg = f"正文 {len(files)} 篇 / {total_chars:,} 字，平均 {avg:,} 字每篇"
+    if thin:
+        msg += f"；{len(thin)} 篇不足 500 字：" + "、".join(f"{n}({c})" for n, c in thin[:5])
+    findings.append(Finding(
+        "INFO", "FMT-01", msg,
+        suggestion="确认过薄的篇章是「故意精简」还是「只写了标题」——后者会让覆盖率虚高" if thin else "",
+    ))
 
     blockers = [f for f in findings if f.level == "BLOCKER"]
     warns = [f for f in findings if f.level == "WARN"]

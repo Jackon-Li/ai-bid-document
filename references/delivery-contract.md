@@ -87,7 +87,7 @@ bid-<项目编号>-<YYYYMMDD>/
 {
   "schema_version": "2.0",
   "generated_at": "2026-10-18T10:00:00",
-  "tool": {"name": "validate_bid.py", "version": "2.0.0"},
+  "tool": {"name": "validate_bid.py", "version": "2.0.1"},
   "input": {
     "bid": "./20-正文",
     "requirements": "10-台账/requirements.csv",

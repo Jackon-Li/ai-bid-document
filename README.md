@@ -1,8 +1,8 @@
 # ai-bid-document · AI 投标文档技能
 
-[![Version](https://img.shields.io/badge/version-2.0.0-4F46E5?style=flat-square)](https://github.com/Jackon-Li/ai-bid-document/releases/tag/v2.0.0)
+[![Version](https://img.shields.io/badge/version-2.0.1-4F46E5?style=flat-square)](https://github.com/Jackon-Li/ai-bid-document/releases/tag/v2.0.1)
 [![发布页](https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%E5%8F%91%E5%B8%83%E9%A1%B5-%E5%8F%AF%E8%A7%86%E5%8C%96%E7%89%88-0891B2?style=flat-square)](https://jackon-li.github.io/ai-bid-document/)
-[![Tests](https://img.shields.io/badge/tests-23%20passed-16A34A?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/tests-26%20passed-16A34A?style=flat-square)](tests/)
 [![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](LICENSE)
 
 > 把招标文件当作唯一事实来源，把投标文件当作逐条账本。
@@ -14,7 +14,7 @@
 适用于 Claude Code、WorkBuddy、Cursor 等支持 Skill / 自定义指令的 AI 编程助手，
 也可以完全脱离 AI 当纯方法论与脚本工具使用。
 
-**当前版本 v2.0.0** —— 在 v1 的"条目化 → 映射 → 撰写 → 校验 → 交付"闭环上，
+**当前版本 v2.0.1** —— 在 v1 的"条目化 → 映射 → 撰写 → 校验 → 交付"闭环上，
 补齐了**模式路由、投标决策辅助、评分作战表、双轨核查、复用污染扫描、机器可读报告**六块能力，
 并修掉 10 个会让"看起来通过、其实没做"的脚本缺陷（详见 [v2 修了什么](#v2-修了什么)）。
 
@@ -23,7 +23,7 @@
 
 > **中文别名 / 搜索关键词**：投标文档技能、标书写作、售前方案、售前支持、技术标、商务标、
 > 招投标、投标文件、点对点应答表、技术偏离表、废标项核查、招标文件解析、spec docs 逐条应答。
-> 仓库英文名为 `ai-bid-document`（GitHub 不支持中文仓库名与中文 topics），中文检索请依赖本行。
+> 仓库名与 topics 用英文（`ai-bid-document`），中文关键词进不了仓库元数据，中文检索请依赖本行。
 
 ---
 
@@ -44,6 +44,7 @@
 - [设计思路](#设计思路)
 - [常见问题](#常见问题)
 - [局限与免责](#局限与免责)
+- [贡献](#贡献)
 - [许可](#许可)
 
 ---
@@ -145,9 +146,32 @@ python scripts/validate_bid.py --bid ./bid --req requirements.csv --map outline-
   --report validate.json
 ```
 
-检查 12 项：占位符残留、必答覆盖（区分"声明"与"实质"）、灰色响应表述、章节映射缺失、
-章节编号连续性、绝对化表述、注水套话、评分点无证据、复用污染（旧项目名/编号/内部用语）、
-docx 不可读、输入异常、篇幅统计。
+脚本产出 **21 条规则**（9 组），每条发现都带 `规则编号 / 位置 / 证据 / 整改建议`，
+与 `validate.json` 里的 `rule` 字段逐一对得上：
+
+| 组 | 规则 | 查什么 | 等级 |
+|---|---|---|---|
+| 占位 | `TODO-01` | `[待确认]`、`XX`、`TBD` 等占位符残留 | BLOCKER |
+| 覆盖 | `COV-01` | 必答条目在正文里完全未出现 | BLOCKER |
+| | `COV-02` | 只出现在覆盖声明行，正文无实质展开 | BLOCKER |
+| | `COV-03` | 引用了台账中不存在的条目号 | WARN |
+| 表述 | `GRAY-01` | "基本响应""部分响应"等灰色表述 | BLOCKER |
+| | `RISK-01` | 绝对化 / 宣传性表述 | WARN |
+| | `RISK-02` | 放之四海皆准的注水套话 | WARN |
+| 结构 | `NUM-01` | 章节编号重复、跳号、倒退（认 `第X章` / `# N.` / `N、`） | WARN |
+| 映射 | `MAP-01` | 必答条目未分配章节 | BLOCKER |
+| | `MAP-02` | 分配了章节但 `chapter` 列为空 | BLOCKER |
+| 评分 | `SCORE-00` | 评分作战表读不出来 | BLOCKER |
+| | `SCORE-01` / `SCORE-02` | 评分点无承载章节 / 证据为空 | BLOCKER |
+| | `SCORE-03` / `SCORE-04` | 分值非法 / 把握度不在 高·中·低·无 | WARN |
+| | `SCORE-05` | 缺原文摘录，或拆分过粗（<15 条且平均 >8 分/条） | WARN |
+| | `SCORE-06` | 可达分 / 理论满分 < 70% | INFO |
+| 污染 | `POLL-01` / `POLL-03` | 旧项目编号 / 内部用语残留 | BLOCKER |
+| | `POLL-02` | 旧项目名称残留 | WARN |
+| 篇幅 | `FMT-01` | 篇数与字数统计；单篇 < 500 字时点名 | INFO |
+
+> 输入侧异常（路径不存在、目录里没有可读文件、`.docx` 缺少 `python-docx`）**不产出发现项**，
+> 而是直接返回退出码 `2`。结论本身无意义时还继续报 WARN/INFO，会制造"跑过了"的错觉。
 
 **其中三项是 v2 才有的**，也是真实项目里最容易"假通过"的地方：
 
@@ -228,7 +252,7 @@ S2 映射          requirements → outline-map.csv；评分办法 → scoring-m
 S3 撰写          逐章推进，每章首部写覆盖声明，首段直接回应原文
   │               不确定处标 [待确认]，不编造；同步做复用污染自检
   ▼
-S4 双轨核查      轨一：validate_bid.py 跑 12 项确定性检查（exit 1 = 有阻断）
+S4 双轨核查      轨一：validate_bid.py 跑 21 条确定性规则（exit 1 = 有阻断）
   │               轨二：compliance-checklist.md 做 A–G 七维语义复核
   │               🚧 G3：BLOCKER 必须清零
   ▼
@@ -276,7 +300,7 @@ S5 交付          八件套：正文/台账/映射/评分表/应答表/待确�
 - **机器可读报告**：`--report validate.json`，每条发现带 `id/rule/location/evidence/suggestion`
 - **交付契约**：固定目录、命名、JSON schema、Issue ID 规则（`references/delivery-contract.md`）
 - **异常边界表**：14 种真实情况（扫描件、加密、超长、联合体、电子标、涉密…）的处理口径
-- **回归测试**：`tests/test_scripts.py` 23 项，零依赖，每个用例对应一个真实 bug
+- **回归测试**：`tests/test_scripts.py` 26 项，零依赖，每个用例对应一个真实 bug
 
 ---
 
@@ -370,7 +394,7 @@ python scripts/validate_bid.py --bid ./bid --req requirements.csv \
 **第 6 步（可选）：跑一遍回归测试，确认脚本在你机器上的行为一致**
 
 ```bash
-python -m unittest discover -s tests -v      # 23 项，无需安装任何依赖
+python -m unittest discover -s tests -v      # 26 项，无需安装任何依赖
 ```
 
 > 完整演示见 [`examples/walkthrough.md`](examples/walkthrough.md)。
@@ -397,7 +421,7 @@ ai-bid-document/
 │   ├── tech-domains.md           # 9 大子系统技术要点
 │   └── delivery-contract.md      # 目录/命名/validate.json 契约/Issue ID
 │
-├── templates/                    # 可直接改用的模板（7 份）
+├── templates/                    # 可直接改用的模板（8 份）
 │   ├── requirements.csv          # 要求台账（15 列）
 │   ├── outline-map.csv           # 章节映射
 │   ├── scoring-matrix.csv        # 评分作战表
@@ -411,14 +435,14 @@ ai-bid-document/
 │   └── walkthrough.md            # 全流程演示 + v2 三类新检查的实测输出
 │
 ├── tests/
-│   └── test_scripts.py           # 23 项回归测试，零依赖
+│   └── test_scripts.py           # 26 项回归测试，零依赖
 │
 ├── docs/                         # 发布页（GitHub Pages）
 │   └── index.html
 │
 └── scripts/
     ├── extract_requirements.py   # 要求抽取（去重 + 溯源 + 强度分级）
-    ├── validate_bid.py           # 双轨核查的确定性轨（12 项检查 / JSON 输出）
+    ├── validate_bid.py           # 双轨核查的确定性轨（21 条规则 / JSON 输出）
     └── README.md                 # 脚本详细用法
 ```
 

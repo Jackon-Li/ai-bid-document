@@ -169,6 +169,34 @@ class T08_Score(unittest.TestCase):
             self.assertIn("SCORE-02", rules)
             self.assertEqual(stats["score_total"], 18.0)
 
+    def test_score05_missing_rule_text(self):
+        """score_rule 为空 → 无法核对是否漏拆（规范写了这条，代码曾经没实现）"""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "s.csv"
+            write(p, "score_id,score_item,score_max,score_rule,evidence,chapter,capability,note\n"
+                     "S-001,技术方案,10,,方案正文,3.1,高,\n")
+            findings, _ = vb.check_score(p)
+            self.assertIn("SCORE-05", [f.rule for f in findings])
+
+    def test_score05_too_coarse(self):
+        """一条评分点平均吃 8 分以上且条数偏少 → 拆分过粗"""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "s.csv"
+            rows = "".join(f"S-{i:03d},项{i},10,原文{i},证据,3.{i},高,\n" for i in range(1, 6))
+            write(p, "score_id,score_item,score_max,score_rule,evidence,chapter,capability,note\n" + rows)
+            findings, stats = vb.check_score(p)
+            self.assertIn("SCORE-05", [f.rule for f in findings])
+            self.assertEqual(stats["score_points"], 5)
+
+    def test_score05_silent_when_fine(self):
+        """拆得够细且原文齐全时不应触发 SCORE-05"""
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "s.csv"
+            rows = "".join(f"S-{i:03d},项{i},2,原文{i}得2分,证据,3.{i},高,\n" for i in range(1, 16))
+            write(p, "score_id,score_item,score_max,score_rule,evidence,chapter,capability,note\n" + rows)
+            findings, _ = vb.check_score(p)
+            self.assertNotIn("SCORE-05", [f.rule for f in findings])
+
 
 class T09_ExitCodes(unittest.TestCase):
     def run_cli(self, *args):
