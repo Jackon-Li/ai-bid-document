@@ -1,5 +1,10 @@
 # ai-bid-document · AI 投标文档技能
 
+[![Version](https://img.shields.io/badge/version-2.0.0-4F46E5?style=flat-square)](https://github.com/Jackon-Li/ai-bid-document/releases/tag/v2.0.0)
+[![发布页](https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%E5%8F%91%E5%B8%83%E9%A1%B5-%E5%8F%AF%E8%A7%86%E5%8C%96%E7%89%88-0891B2?style=flat-square)](https://jackon-li.github.io/ai-bid-document/)
+[![Tests](https://img.shields.io/badge/tests-23%20passed-16A34A?style=flat-square)](tests/)
+[![License](https://img.shields.io/badge/license-MIT-64748B?style=flat-square)](LICENSE)
+
 > 把招标文件当作唯一事实来源，把投标文件当作逐条账本。
 > **不漏项、不越界、可核对、可交付。**
 
@@ -12,6 +17,9 @@
 **当前版本 v2.0.0** —— 在 v1 的"条目化 → 映射 → 撰写 → 校验 → 交付"闭环上，
 补齐了**模式路由、投标决策辅助、评分作战表、双轨核查、复用污染扫描、机器可读报告**六块能力，
 并修掉 7 个会让"看起来通过、其实没做"的脚本缺陷（详见 [v2 修了什么](#v2-修了什么)）。
+
+> **在线发布页（可视化版）**：<https://jackon-li.github.io/ai-bid-document/>
+> 由 `docs/` 通过 GitHub Actions 自动部署，含能力矩阵、门禁流程图与 v1/v2 对照。
 
 > **中文别名 / 搜索关键词**：投标文档技能、标书写作、售前方案、售前支持、技术标、商务标、
 > 招投标、投标文件、点对点应答表、技术偏离表、废标项核查、招标文件解析、spec docs 逐条应答。
